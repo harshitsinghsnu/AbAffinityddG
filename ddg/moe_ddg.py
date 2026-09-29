@@ -35,8 +35,7 @@ import numpy as np, pandas as pd, torch, torch.nn as nn, torch.nn.functional as 
 from scipy.stats import pearsonr, spearmanr
 
 # --- import the existing AbAffinity ddG pipeline (caches, splits, features live next to it) ---
-PIPE = os.environ.get('ABAFF_PIPE',
-    r"C:\Users\hs494\OneDrive - Shiv Nadar Institution of Eminence\Desktop\BALM_Ag_Ab\3_stream\graphinity_comparison")
+PIPE = os.environ.get('ABAFF_PIPE', os.path.dirname(os.path.abspath(__file__)))  # ddg/ (self-contained by default)
 sys.path.insert(0, PIPE)
 import run_ddg_variants as rv          # noqa: E402  (AbAffinity core, ESM-2 caching, pooling)
 import run_ddg_seq_improved as si      # noqa: E402  (build features, compute_mlm, stack, rank_loss)

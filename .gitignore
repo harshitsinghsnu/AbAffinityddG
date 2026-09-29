@@ -3,3 +3,8 @@ __pycache__/
 .DS_Store
 paper/
 results/
+
+# runtime-regenerated caches/outputs — not part of the shipped package
+data/esm2_token_cache_650M.pkl
+data/*_cache.pkl
+results_ddg_variants/

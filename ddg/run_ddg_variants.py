@@ -32,17 +32,20 @@ import numpy as np, pandas as pd, torch, torch.nn as nn
 from scipy.stats import pearsonr, spearmanr
 from transformers import AutoModel, AutoTokenizer
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # 3_stream
+HERE = os.path.dirname(os.path.abspath(__file__))                      # ddg/
 sys.path.insert(0, HERE)
 from mutual_strong import MutualTriStreamStrong                         # noqa: E402
 
-GC = os.path.join(HERE, 'graphinity_comparison')
+PKG_ROOT = os.path.dirname(HERE)                                        # package root
+# All of these are overridable via env vars; defaults assume the standard
+# package layout (checkpoints/model.pt, data/*.csv) documented in README.md.
+GC = os.environ.get('ABAFF_DATA', os.path.join(PKG_ROOT, 'data'))
 SEQS = os.path.join(GC, 'graphinity645_sequences.csv')
-SPLITDIR = os.path.join(GC, 'data', 'ddg_experimental', 'Experimental_ddG_645',
+SPLITDIR = os.path.join(GC, 'ddg_experimental', 'Experimental_ddG_645',
                         'cdr_seqid_cutoffs', 'Experimental_ddG_645_-Reverse_Mutations_+Non_Binders')
-PRETRAINED = os.path.join(HERE, 'results_saaintdb_allcdr', 'random', 'fold_01', 'model.pt')
-TOKCACHE = os.path.join(GC, 'esm2_token_cache_650M.pkl')
-OUT = os.path.join(GC, 'results_ddg_variants')
+PRETRAINED = os.environ.get('ABAFF_CKPT', os.path.join(PKG_ROOT, 'checkpoints', 'model.pt'))
+TOKCACHE = os.path.join(GC, 'esm2_token_cache_650M.pkl')   # auto-created/regenerated on first run
+OUT = os.path.join(PKG_ROOT, 'results_ddg_variants')
 ESM = 'facebook/esm2_t33_650M_UR50D'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PKD_LOWER, PKD_UPPER = 4.33, 13.47              # SAaIntDB pK_d range (for V0 units; correlation-invariant)
