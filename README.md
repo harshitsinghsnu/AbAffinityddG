@@ -63,12 +63,21 @@ LaTeX sources.
 
 ## Step-by-step: reproduce the main ddG result from scratch
 
-1. **Install dependencies**
+1. **Install dependencies** (Python 3.11; exact versions verified in
+   `requirements.txt`)
    ```bash
-   pip install torch transformers numpy pandas scipy scikit-learn matplotlib biopython
+   pip install -r requirements.txt
    ```
-   A CUDA GPU is strongly recommended (ESM-2 650M forward passes over S1131
-   otherwise take a long time on CPU).
+   `pip install torch==2.6.0` alone resolves to a CPU-only wheel. For GPU
+   training (strongly recommended — ESM-2 650M forward passes over S1131
+   take a long time on CPU), install the matching CUDA build first, e.g.
+   for CUDA 12.4 (what this pipeline was run and verified with):
+   ```bash
+   pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+   pip install -r requirements.txt   # picks up everything else
+   ```
+   Table S5's XGBoost baseline (`ddg/baselines_ddg.py`) is optional — see
+   the note in `requirements.txt`; the rest of the pipeline runs without it.
 
 2. **Clone this repo** — the checkpoint (`checkpoints/model.pt`) and input
    pairs (`data/ddg_input_*.csv`) are already included, so no external

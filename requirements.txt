@@ -1,0 +1,20 @@
+# Exact versions verified in the environment used to run this pipeline
+# (Python 3.11.11). Install torch separately first if you need a specific
+# CUDA build (see note below) — pip's default torch==2.6.0 resolves to a
+# CPU-only wheel unless you point at the PyTorch CUDA index.
+torch==2.6.0
+transformers==4.51.0
+numpy==2.2.2
+pandas==3.0.3
+scipy==1.17.1
+scikit-learn==1.8.0
+matplotlib==3.10.9
+biopython==1.85
+tqdm==4.67.1
+
+# Table S5's XGBoost baseline (ddg/baselines_ddg.py) is optional at import
+# time (falls back to skipping the XGB row if unavailable) and was NOT
+# installed in the environment this requirements.txt was generated from,
+# so its exact reported version is not verified here. Uncomment and pin
+# once you've confirmed the version you're using:
+# xgboost>=2.0
