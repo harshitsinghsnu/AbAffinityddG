@@ -1,0 +1,128 @@
+\documentclass{article}
+\usepackage{neurips_2026}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{placeins}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+
+% figures live next to this .tex
+\graphicspath{{./}}
+\newcommand{\ddg}{\ensuremath{\Delta\Delta G}}
+\newcommand{\pkd}{\ensuremath{pK_d}}
+
+\title{Antibody--Antigen Affinity and Mutational $\Delta\Delta G$ Prediction with Chain-Aware Protein Language Modeling}
+\author{Anonymous Authors}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Antibody discovery requires ranking far more sequences than can be experimentally assayed, often before a reliable complex structure is available, and antibody engineering additionally requires predicting how mutations change binding. We introduce AbAffinity, a sequence-only model that preserves antibody heavy chain, light chain, and antigen as distinct streams. Frozen ESM-2 embeddings are combined with heavy-chain complementarity-determining-region (CDR) pooling, heavy--light contextualization, adaptive fusion, and gated antibody--antigen interaction. On 2{,}575 SAAINT-DB complexes, AbAffinity obtains Pearson $r=0.86\pm0.01$ under random ten-fold cross-validation and $r=0.57\pm0.02$ on an antigen-cold split, improving over matched early-fusion baselines and transferring across SAbDab, AB-Bind, and SKEMPI~2.0. Partner-shuffling and gate interventions show that the model uses antigen-specific interaction signal rather than antibody-only shortcuts, and Integrated-Gradients attributions recover 56 of 73 structurally annotated paratope residues, versus 22 for a fused baseline. We then \emph{repurpose the frozen AbAffinity encoder for mutational \ddg{}}: converting each complex's cosine to \pkd{} with AbAffinity's native calibration and differencing wild-type and mutant gives a physics-style affinity anchor, to which a small gated correction is added. On the S1131 antibody benchmark this reaches Pearson $r=0.71$ (complex-disjoint) and $0.68$ (antigen-disjoint), leading every frozen-ESM-2 regressor and published sequence predictor under leakage-controlled splits, and detecting large affinity-enhancing mutations with AUROC $0.95$--$0.98$. AbAffinity provides a lightweight, interpretable sequence-first prior for antibody triage and affinity maturation when structural information is incomplete or unavailable.
+\end{abstract}
+
+\section{Introduction}
+Antibody affinity is central to therapeutic discovery, but synthesis and binding assays cover only a small fraction of generated or designed sequences. Structure-based predictors are valuable when an experimentally resolved or confidently modelled complex is available; early discovery, however, often requires ranking large heavy--light libraries against targets without a reliable binding pose~\citep{dunbar2014sabdab,sirin2016ab,jankauskaite2019skempi}. Protein language models (PLMs) offer a scalable sequence representation, yet affinity predictors commonly pool entire chains or fuse antibody and antigen features early, potentially obscuring the chain- and partner-specific signals that determine binding~\citep{lin2023evolutionary,jin2024attabseq,wang2024antiformer}.
+
+Antibody biology provides useful inductive bias. Heavy and light chains have distinct origins and contribute non-identically to the paratope; binding signal is concentrated in CDRs, while the antigen epitope is unknown before prediction. We ask whether a compact interaction network can turn frozen PLM features into a partner-specific predictor by preserving heavy, light, and antigen streams, enriching the heavy-chain representation for CDR signal, and gating antibody--antigen interactions.
+
+AbAffinity implements these principles and targets a practical translational gap: structure-free prioritization before expensive modelling or wet-lab validation. Crucially, because the change in binding free energy upon mutation is to first order a difference of two absolute affinities, the \emph{same} frozen encoder can be repurposed for mutational \ddg{} without retraining the backbone. We evaluate absolute affinity on random and antigen-cold splits, external natural-complex and mutation benchmarks, mechanistic interventions, residue attribution, and mutation landscapes; and we evaluate \ddg{} on the S1131/AB-Bind antibody benchmarks under leakage-controlled splits. The results support three claims: chain-aware factorization improves affinity prediction; authentic antigen input and the learned gate are necessary for performance; and the affinity-anchored representation generalizes to mutational \ddg{} on unseen antibodies and antigens.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figure_architecture.pdf}
+\caption{\textbf{Architecture.} \textbf{(a)} AbAffinity keeps the three biological inputs distinct until antibody construction and partner interaction: frozen ESM-2 supplies residue features; CDR-focused heavy pooling, heavy--light contextualization, adaptive fusion, and gated cross-attention form the trainable interaction module, whose antibody/antigen context vectors give absolute affinity through their cosine similarity. \textbf{(b)} Repurposing for \ddg{}: two weight-shared frozen AbAffinity towers score the wild-type and mutant complex; each cosine is mapped to \pkd{} with AbAffinity's native calibration, their difference forms a physics-style affinity anchor $s(\pkd^{wt}-\pkd^{mut})$, and a small gated correction on interface-difference features is added to predict \ddg{}.}
+\label{fig:arch}
+\end{figure}
+
+\section{Method}
+\paragraph{Chain-aware encoding.}
+Given heavy-chain $H$, light-chain $L$, and antigen $G$ sequences, a frozen ESM-2 650M encoder produces residue embeddings. The heavy chain is pooled over IMGT CDR-H1--H3 residues, while the light chain and antigen are mean-pooled because no epitope is assumed known:
+\begin{equation}
+\begin{aligned}
+x_H&=|\mathcal C_H|^{-1}\sum_{i\in\mathcal C_H}e_i^H,\\[-1mm]
+x_L&=L_L^{-1}\sum_i e_i^L,\qquad x_G=L_G^{-1}\sum_i e_i^G.
+\end{aligned}
+\label{eq:chain_pooling}
+\end{equation}
+CDRs are assigned with ANARCI under IMGT numbering; a motif detector is used when numbering fails, followed by full-chain pooling as a final fallback. Stream-specific linear--LayerNorm--GELU projections map all three vectors to a shared 256-dimensional space with dropout 0.1.
+
+\paragraph{Antibody fusion and partner interaction.}
+Heavy and light vectors exchange information as a two-token self-attention sequence. A learned softmax gate forms $a=w_Hh+w_Ll$, where $w_H+w_L=1$. Two gated cross-attention blocks then condition the antigen on the antibody:
+\begin{equation}
+\begin{aligned}
+m^{(k)}&=\tanh(W_qa\odot W_kc^{(k-1)}),\\[-1mm]
+c^{(k)}&=\mathrm{LN}\!\left(a+W_o[(m^{(k)}\odot W_vc^{(k-1)})\odot\sigma(W_ga)]\right).
+\end{aligned}
+\label{eq:gated_cross_attention}
+\end{equation}
+Here $c^{(0)}$ is the projected antigen. Heavy--light attention uses eight heads and the interaction is stacked twice. Separate heads map $a$ and $c^{(2)}$ to unit vectors; their cosine similarity $\hat s$ is linearly mapped to \pkd{} using training-fold extrema, $\pkd={\pkd}_{\min}+({\pkd}_{\max}-{\pkd}_{\min})(\hat s+1)/2$. Only the projection, attention, interaction, and prediction layers are trained with mean-squared error; ESM-2 remains fixed throughout.
+
+\paragraph{Repurposing AbAffinity for mutational \ddg{}.}
+Because \ddg{} is, to first order, the difference of two absolute affinities, we reuse the \emph{trained, frozen} AbAffinity encoder as a physics-style \emph{affinity anchor} (Fig.~\ref{fig:arch}b). We score the wild-type and mutant complex, convert each cosine to \pkd{} with AbAffinity's own calibration, and difference them:
+\begin{equation}
+\widehat{\ddg}=\underbrace{s\big(\pkd^{wt}-\pkd^{mut}\big)}_{\text{affinity anchor}}
++\;h\big(\phi_{wt}-\phi_{mut}\big),\qquad
+\pkd^{\bullet}={\pkd}_{\min}+({\pkd}_{\max}-{\pkd}_{\min})\tfrac{\hat s^{\bullet}+1}{2},
+\label{eq:ddg}
+\end{equation}
+where $s$ is a learned scale initialized to $RT\ln 10=1.364\ \mathrm{kcal\,mol^{-1}}$ per \pkd{} unit, $\phi$ are antibody$\leftrightarrow$antigen interface-attended difference features, and $h$ is a small gated correction network driven by mutation descriptors (log-likelihood-ratio, physicochemical and CDR flags). Only the anchor scale, the interaction, and the correction parameters are trained; ESM-2 and the AbAffinity backbone remain frozen, so a full evaluation costs minutes on one GPU. \ddg{} models use a weighted-Huber(hinge) loss ($w_k=1+\alpha\max(0,|y_k|-\tau)$, $\delta{=}1,\tau{=}2,\alpha{=}1$) plus a pairwise ranking term, with reverse-mutation augmentation for antisymmetry. Because the \pkd{} conversion is affine, its offset cancels in the wild-type$-$mutant difference; differencing the raw cosine instead is an equivalent formulation (Fig.~\ref{fig:ddg}d) and we adopt the \pkd{} form to match AbAffinity's native readout.
+
+\paragraph{Interpretation.}
+Integrated Gradients propagates the prediction to residue embeddings using a zero-vector baseline and 50 interpolation steps~\citep{sundararajan2017axiomatic}. Scores are summed over the 1{,}280 embedding dimensions, normalized within each chain, and compared with structurally annotated interfaces (1VFB, 3HFM, 4ETQ, 5GRJ, 5Y9J). Attribution is treated as a biological plausibility check rather than an energetic decomposition.
+
+\section{Experimental design}
+\paragraph{Absolute affinity.}
+The primary dataset is the affinity-labelled subset of SAAINT-DB~\citep{huang2025saaint}: 2{,}575 non-redundant complexes from 1{,}271 PDB structures, including 1{,}913 paired antibodies and 662 nanobodies. We report random ten-fold cross-validation and a stricter antigen-cold ten-fold split. External evaluation follows the MVSF-AB release~\citep{li2025mvsf}: SAbDab, AB-Bind, SKEMPI~2.0 and a held-out natural-complex benchmark, over five seeds. Affinities are harmonized as $\pkd=-\log_{10}(K_d[\mathrm M])$. Optimization uses AdamW (lr $10^{-4}$, weight decay $10^{-2}$), batch size 32, gradient clipping 1.0, and $\leq50$ epochs with validation-Pearson early stopping.
+
+\paragraph{Mutational \ddg{}.}
+We evaluate on antibody--antigen \ddg{}: \textbf{S1131} (1{,}130 SKEMPI-derived single-point interface mutations, 112 complexes), the AB-Bind sets \textbf{AB645}/\textbf{AB1101}, and general protein--protein \textbf{SKEMPI~2.0} for out-of-domain transfer. For each benchmark we build a ladder of leakage-controlled splits: \emph{random} (record-level), \emph{complex-disjoint} (\texttt{GroupKFold} by PDB), and \emph{antigen-disjoint} (\texttt{GroupKFold} by antigen, the strictest). All \ddg{} numbers are mean $\pm$ s.d.\ over three seeds with per-fold $z$-scoring; we report Pearson $r$, Spearman $\rho$, RMSE, AUROC ($\ddg<0$ = affinity-enhancing), and direction accuracy.
+
+\paragraph{Comparisons.}
+For affinity, matched baselines are a fused two-stream model and a concatenation-MLP, plus published MVSF-AB. For \ddg{}, on \emph{identical folds} we run frozen-ESM-2 regressors (Ridge, RandomForest, XGBoost, MLP) and parameter-matched neural modules (MLP/CNN/LSTM/Transformer) on wild-type/mutant/difference embeddings, and we compare to published sequence predictors (AttABseq, DeepEP-PPI, TransPPI, PIPR, BeAtMuSiC; fine-tuned ProtAttBA) and structure predictors (DDGPred)~\citep{jin2024attabseq}.
+
+\section{Results: absolute affinity}
+\subsection{Chain-aware modelling improves generalization}
+AbAffinity achieves $r=0.86\pm0.01$, $\rho=0.84\pm0.01$, RMSE $=0.69\pm0.01$ on random SAAINT-DB cross-validation, and beats the fused two-stream ($0.82$) and concatenation ($0.82$) baselines on both random and antigen-cold splits (Fig.~\ref{fig:aff}a), showing the gain does not arise from PLM features alone. The margin widens on the antigen-cold split ($0.60$ vs $0.55$/$0.55$), where preserving chain identity matters most. Among frozen backbones, ESM-2 is the strongest encoder ($r=0.84$, $\rho=0.82$), ahead of ProtBERT ($0.82$/$0.81$) and well ahead of AntiBERTy ($0.53$) and ProGen2 ($0.41$) (Fig.~\ref{fig:aff}b). Across external benchmarks AbAffinity improves Pearson over MVSF-AB on SAbDab ($0.60$ vs $0.49$), AB-Bind ($0.78$ vs $0.74$), SKEMPI~2.0 ($0.72$ vs $0.67$) and held-out ($0.55$ vs $0.47$), with lower RMSE throughout (Fig.~\ref{fig:aff}c,d).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figure_affinity_results.pdf}
+\caption{\textbf{Absolute-affinity (\pkd{}) results.} \textbf{(a)} Architecture comparison (AbAffinity vs fused two-stream vs concat+MLP) under random and antigen-cold SAAINT-DB splits. \textbf{(b)} Backbone ablation: ESM-2 / ProtBERT / AntiBERTy / ProGen2 by Pearson and Spearman; ESM-2 is the strongest encoder. \textbf{(c,d)} Comparison with MVSF-AB on SAbDab, AB-Bind, SKEMPI~2.0 and the held-out benchmark by Pearson (c) and RMSE (d). \textbf{(e)} Integrated-gradients attribution and structural mapping for the D1.3--lysozyme complex (PDB 1VFB); high-attribution residues localise to antibody CDRs and lysozyme epitope positions. \textbf{(f)} Few-shot fine-tuning curves (within-target Spearman vs label fraction) on 1mlc, trastuzumab and 4fqi.}
+\label{fig:aff}
+\end{figure}
+
+\subsection{Biological priors, explainability, and adaptation}
+CDR-focused heavy pooling improves Pearson from $0.83$ to $0.86$; shuffling antigens collapses $r$ from $0.87$ to $0.37$, replacing the antigen by its mean gives $0.55$, and closing the learned gate drops $r$ to $0.56$ while RMSE rises from $0.68$ to $1.12$. These controls argue against antibody-only shortcuts and support a partner-conditioned mechanism. Integrated Gradients assign high attribution to \textbf{56 of 73} annotated paratope residues (vs $22/73$ for the fused baseline); on 1VFB the signal localises to antibody CDRs and the discontinuous lysozyme epitope (Fig.~\ref{fig:aff}e). Finally, with 30\% target-specific labels, within-target Spearman rises from $0.47$ to $0.95$ (4fqi), $0.17$ to $0.42$ (1mlc), and $0.14$ to $0.30$ (trastuzumab) (Fig.~\ref{fig:aff}f), so the pretrained representation is a useful affinity-maturation prior after modest calibration.
+
+\section{Results: mutational $\Delta\Delta G$}
+\subsection{The affinity anchor generalizes to \ddg{} on unseen antibodies and antigens}
+Repurposing the frozen AbAffinity encoder (Eq.~\ref{eq:ddg}) yields a \ddg{} predictor that is strongest exactly where it matters --- under leakage control (Fig.~\ref{fig:ddg}). On S1131, AbAffinity-\ddg{} reaches Pearson $r=0.801\pm0.004$ (random), $\mathbf{0.713\pm0.017}$ (complex-disjoint) and $\mathbf{0.675\pm0.019}$ (antigen-disjoint). On the random split frozen-ESM-2 tree regressors are competitive (XGBoost $0.851$), but \textbf{as the split becomes stricter the affinity anchor increasingly wins}: on antigen-disjoint it leads XGBoost ($0.458$), RandomForest ($0.414$), MLP ($0.367$) and a parameter-matched LSTM ($0.061$) by a wide margin (Fig.~\ref{fig:ddg}a,b), while equal-capacity CNN/LSTM/Transformer modules collapse ($\le0.32$). On the standard S1131 random ten-fold CV it also leads every published \emph{sequence} predictor evaluated on the same split --- AttABseq ($0.66$), DeepEP-PPI ($0.41$), TransPPI ($0.38$), PIPR ($0.33$) and BeAtMuSiC ($0.29$) (Fig.~\ref{fig:ddg}c). Fine-tuned ProtAttBA ($0.84$) and structure-based DDGPred ($0.92$) remain higher, as expected for a fine-tuned encoder and a structure model.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figure_ddg_results.pdf}
+\caption{\textbf{Mutational \ddg{} results (S1131).} \textbf{(a,b)} On the complex-disjoint and antigen-disjoint splits (identical fold columns for every method) AbAffinity-\ddg{} outperforms every frozen-ESM-2 regressor and the parameter-matched LSTM. \textbf{(c)} On S1131 random ten-fold CV it also leads published sequence predictors (AttABseq, DeepEP-PPI, TransPPI, PIPR, BeAtMuSiC). \textbf{(d)} Anchor formulation: AbAffinity's native \pkd{} conversion vs the raw cosine difference --- statistically identical. \textbf{(e)} Contribution of the learned correction: the affinity anchor alone vs the full model. \textbf{(f)} Among large-effect mutations ($|\ddg|>2$~kcal/mol), direction accuracy and AUROC for detecting affinity-enhancing substitutions stay at $0.94$--$0.98$. Error bars are s.d.\ over three seeds.}
+\label{fig:ddg}
+\end{figure}
+
+\subsection{Anchor formulation, correction, and reliability}
+Using AbAffinity's native \pkd{} conversion inside the anchor is statistically identical to differencing the raw cosine ($0.80$ vs $0.80$ random, $0.71$ vs $0.70$ complex-disjoint, $0.68$ vs $0.67$ antigen-disjoint), the \pkd{} form carrying lower seed variance (Fig.~\ref{fig:ddg}d) --- expected, since the affine conversion's offset cancels in the wild-type$-$mutant difference. Forming per-state binding free energies explicitly ($\Delta G=-RT\ln10\cdot\pkd$) and differencing ($\ddg=\Delta G^{mut}-\Delta G^{wt}$) is likewise equivalent ($0.79$/$0.73$/$0.68$ across the three splits), confirming the anchor is a genuine free-energy difference rather than an artifact of the cosine parameterization. The learned correction contributes beyond the anchor (Fig.~\ref{fig:ddg}e): the affinity anchor alone reaches $0.72$/$0.69$/$0.65$ across the three splits and the full model lifts these to $0.80$/$0.71$/$0.68$. Reliability is strongest in the design-relevant regime: among large-effect mutations ($|\ddg|>2$~kcal/mol) the model flags affinity-enhancing substitutions with AUROC $0.94$--$0.98$ and direction accuracy $0.94$--$0.97$ across all splits (Fig.~\ref{fig:ddg}f). Replacing the weighted-Huber(hinge)$+$ranking loss with plain MSE changes $r$ by $\le0.01$.
+
+\section{Translational relevance and limitations}
+AbAffinity targets the early-discovery stage in which sequence libraries are abundant but structures and assays are scarce. A practical workflow scores heavy--light candidates from sequence, assays a diverse high-confidence subset, fine-tunes on those target-specific labels for affinity maturation, and reserves structural modelling for the resulting shortlist; the same frozen encoder additionally ranks single-point mutations by \ddg{} without any structure. The main limitations are the antigen-cold affinity gap and, for \ddg{}, that fine-tuned sequence models and structure predictors still lead on in-distribution random splits and on the SKEMPI antibody interface cohort of supervised structure backbones; AB-Bind's few-complex splits cannot discriminate methods under leakage control. Integrated Gradients provides model-dependent hypotheses rather than causal energetic contributions. Within these limits, AbAffinity provides a compact, interpretable sequence-first layer for antibody triage, affinity maturation, and mutational \ddg{} prioritization.
+
+\clearpage
+\bibliographystyle{abbrvnat}
+\bibliography{refs}
+
+\clearpage
+\appendix
+
+\end{document}

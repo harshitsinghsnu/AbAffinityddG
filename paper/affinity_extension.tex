@@ -1,0 +1,71 @@
+% ======================================================================
+% Absolute-affinity RESULTS section for the AbAffinity paper.
+% Companion to ddg_extension.tex. Compilable standalone via the preamble
+% below; to merge, delete the preamble/begin/end and paste the \section.
+% ======================================================================
+\documentclass{article}
+\usepackage[letterpaper,textwidth=6.6in,textheight=9in,top=1in,left=1in]{geometry}
+\usepackage{times}
+\usepackage[utf8]{inputenc}\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,graphicx,booktabs,xcolor}
+\usepackage[hidelinks]{hyperref}\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\newcommand{\pkd}{\ensuremath{pK_d}}
+\newcommand{\model}{\textsc{AbAffinity}}
+\graphicspath{{./}}
+\title{\vspace{-2em}\bfseries \model{} for Absolute Affinity: Results}
+\author{}\date{}
+\begin{document}\maketitle\vspace{-3em}
+
+\section{Results: absolute antibody--antigen affinity}
+
+\begin{figure*}[t]\centering
+\includegraphics[width=\textwidth]{figure_affinity_results.pdf}
+\caption{\textbf{\model{} absolute-affinity (\pkd{}) results.} \textbf{(a)} Chain-aware modelling improves
+affinity prediction across splits and antibody formats: architecture comparison between \model{}, the fused
+two-stream baseline and the concat+MLP baseline under random and antigen-cold splits on SAAINT-DB (Pearson,
+mean $\pm$ s.d.\ over 10 folds). \textbf{(b)} Feature and backbone ablations --- which protein language
+model to choose for the downstream antibody--antigen affinity architecture, comparing ESM-2, ProtBERT,
+AntiBERTy and ProGen2 by Pearson and Spearman correlation; ESM-2 provides the strongest encoder for
+\model{}. \textbf{(c,d)} Comparison with MVSF-AB on SAbDab, AB-Bind, SKEMPI~2.0 and the held-out benchmark
+by Pearson (c) and RMSE (d). \textbf{(e)} Integrated-gradients attribution and structural mapping for the
+D1.3--lysozyme complex (PDB: 1VFB); ground-truth interface residues were referenced from the D1.3--lysozyme
+crystal-structure study. \model{} combines residue-level heatmaps with structural mapping of
+high-attribution residues onto the antibody--antigen complex: the strongest signals localise to antibody
+CDR residues and lysozyme epitope positions, showing that the sequence-only model recovers a physically
+plausible paratope--epitope pattern. \textbf{(f)} Few-shot fine-tuning curves (within-target Spearman vs
+label fraction) on 1mlc, trastuzumab and 4fqi.}
+\label{fig:aff}
+\end{figure*}
+
+\textbf{Chain-aware architecture.} Keeping the heavy chain, light chain and antigen as distinct streams is
+the decisive design choice (Fig.~\ref{fig:aff}a). On SAAINT-DB \model{} reaches Pearson $r=0.842\pm0.022$
+(random) and $0.600\pm0.072$ (antigen-cold), outperforming a fused two-stream baseline ($0.815$/$0.550$)
+and a concat+MLP baseline ($0.817$/$0.549$) on both splits; the margin widens on the harder antigen-cold
+split, where preserving chain identity matters most.
+
+\textbf{Backbone choice.} Among frozen protein language models (Fig.~\ref{fig:aff}b), ESM-2 is the
+strongest encoder for \model{} ($r=0.838$, $\rho=0.822$), ahead of ProtBERT ($0.819$/$0.809$) and well
+ahead of the antibody-specific AntiBERTy ($0.532$/$0.517$) and the autoregressive ProGen2
+($0.412$/$0.393$); ESM-2 also gives the lowest RMSE. We therefore build \model{} on frozen ESM-2.
+
+\textbf{External benchmarks.} \model{} improves on MVSF-AB on every external \pkd{} benchmark
+(Fig.~\ref{fig:aff}c,d): Pearson rises on SAbDab ($0.593$ vs $0.491$), AB-Bind ($0.781$ vs $0.739$),
+SKEMPI~2.0 ($0.722$ vs $0.671$) and the held-out set ($0.551$ vs $0.467$), with correspondingly lower RMSE
+throughout (e.g.\ SKEMPI $1.021$ vs $1.513$~\pkd{}).
+
+\textbf{Adaptation.} With target-specific labels the model calibrates quickly (Fig.~\ref{fig:aff}f):
+within-target Spearman on 4fqi climbs from $0.47$ (zero-shot) to $0.95$ at 30\% labels, on 1mlc from $0.17$
+to $0.42$, and on trastuzumab from $0.14$ to $0.30$.
+
+\textbf{Explainability.} We attribute \model{}'s prediction to input residues with Integrated Gradients and
+map the high-attribution positions onto the complex (Fig.~\ref{fig:aff}e, 1VFB / D1.3--lysozyme). Against
+interface residues from the D1.3--lysozyme crystal structure, \model{} recovers \textbf{19 of 22} antibody
+paratope residues (heavy 10/12, light 9/10) at an attribution threshold of $0.4$, versus $7/22$ for a
+two-stream ablation, and the strongest signals localise to the heavy- and light-chain CDR loops (His30,
+Tyr32, Tyr50, Trp92) with matching lysozyme epitope positions. Aggregated over the paratope, \model{}'s
+Integrated-Gradients map recovers \textbf{56/73 ($0.77$)} ground-truth interface residues against
+\textbf{22/73 ($0.30$)} for the fused baseline --- a sequence-only model recovering a physically plausible
+paratope--epitope pattern without ever seeing structure.
+
+\end{document}
