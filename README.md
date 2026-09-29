@@ -1,11 +1,11 @@
-# AbAffinity-ΔΔG — reproducibility package
+# AbAffinity-ΔΔG — code
 
-Code and results for *"Lightweight Chain-Aware Modeling for Antibody Affinity and
+Code for *"Lightweight Chain-Aware Modeling for Antibody Affinity and
 Mutational Effects"* (AbAffinity absolute-affinity model + affinity-anchored
-ΔΔG mutation transfer). This package contains only what is needed to
-**verify the exact numbers reported in the paper's tables and figures** — it
-is a cleaned subset of a much larger research repository, not the full
-experimental history.
+ΔΔG mutation transfer). This is a cleaned subset of a much larger research
+repository containing only the code that produced the numbers and figures
+reported in the paper — not the full experimental history, and not the
+saved result files themselves.
 
 ## What's included
 
@@ -24,8 +24,9 @@ ddg/            Affinity-anchored mutation-transfer pipeline:
                   moe_ddg.py                main training script: affinity anchor
                                              + gated correction head (Eq. 4).
                                              --anchor_pkd / --anchor_dg / --no_moe
-                                             select the three Table S7 anchor
-                                             variants and the anchor-only ablation.
+                                             select the three anchor-formulation
+                                             variants (Table S7) and the
+                                             anchor-only ablation (Table S5).
                   baselines_ddg.py          Ridge / RandomForest / XGBoost / MLP
                                              frozen-ESM-2 regressors (Table S5)
                   neural_baselines_ddg.py   parameter-matched CNN / LSTM / Transformer
@@ -33,48 +34,35 @@ ddg/            Affinity-anchored mutation-transfer pipeline:
                   compute_metrics_ci.py     Pearson/Spearman/RMSE/direction-accuracy/
                                              AUROC with bootstrap CIs
 
-figures/        make_affinity_master_figure.py  -> figure_affinity_results.{png,pdf}
-                                                    (Figure 2, Tables S1-S4)
-                make_ddg_master_figure.py       -> figure_ddg_results.{png,pdf}
-                                                    (Figure 3, Tables S5-S8)
+figures/        make_affinity_master_figure.py  -> Figure 2 (Tables S1-S4)
+                make_ddg_master_figure.py       -> Figure 3 (Tables S5-S8)
                 ig_1vfb_composite.png            Integrated-Gradients + structural
-                                                  mapping panel used in Figure 2e
-                Pre-rendered PDF/PNG outputs are included so the figures can be
-                inspected without rerunning anything.
-
-results/        Saved per-fold predictions (true/pred/fold) for the S1131
-                mutation benchmark, one subfolder per anchor/ablation variant
-                used by make_ddg_master_figure.py:
-                  anchorpkd_final/   main model, pKd-difference anchor (Table S5,
-                                     S7 "pKd difference (main)", Table S8)
-                  anchoronly_final/  anchor-only ablation, no correction head
-                                     (Table S5 "Affinity anchor only", Fig. 3e)
-                  anchordg_final/    ΔG-difference anchor (Table S7 "ΔG difference")
-                  cosine_final/,
-                  wmt_preds/         raw-cosine-difference anchor (Table S7
-                                     "Cosine difference")
-                Each split has a pooled CSV (s1131_fold_<split>.csv) and three
-                per-seed CSVs (_s0/_s1/_s2) — this is exactly what the figure
-                script reads and aggregates (3-seed mean ± s.d.).
-
-paper/          LaTeX sources for the absolute-affinity and ddG results
-                sections and supplementary tables, for direct cross-reference
-                against the numbers above.
+                                                  mapping panel used as an input to
+                                                  Figure 2e
 ```
 
 ## What's *not* included, and why
 
-Tables S1–S4 and Figure 2's architecture/backbone/external-benchmark numbers
-(0.842 random-split Pearson, ESM-2 vs. ProtBERT/AntiBERTy/ProGen2, vs. MVSF-AB
-on SAbDab/AB-Bind/SKEMPI/held-out) are **reused from the companion AbAffinity
-paper's codebase** (chain-aware absolute-affinity model, trained and
-evaluated there under 10-fold CV on SAAINT-DB). `make_affinity_master_figure.py`
-embeds those exact verified numbers directly (see the script's `AB`, `BP`,
-`PCC_*`, `RMSE_*` arrays) rather than recomputing them, so Figure 2 reproduces
-immediately with no external dependency.
+**No `results/` or `paper/` directories** — this repo is code only. The
+per-fold prediction CSVs that the figure scripts read (and the exact numbers
+they reproduce) are kept private/local; the paper's LaTeX sources are not
+published here either. If you clone this repo, `make_ddg_master_figure.py`
+and `make_affinity_master_figure.py` will **not run out of the box** — they
+expect a `../results/` directory with saved per-fold predictions
+(`anchorpkd_final/`, `anchoronly_final/`, `anchordg_final/`, `cosine_final/`,
+`wmt_preds/`, each with `s1131_fold_{record,complex5,antigen5}[_s0/_s1/_s2].csv`
+columns `complex,fold,true,pred`) that this repo does not ship.
 
-Full **end-to-end retraining** of the ddG pipeline (rather than regenerating
-figures/tables from the saved `results/` CSVs) additionally requires:
+Tables S1–S4 and Figure 2's architecture/backbone/external-benchmark numbers
+are **reused from the companion AbAffinity paper's codebase** (the chain-aware
+absolute-affinity model, trained and evaluated there under 10-fold CV on
+SAAINT-DB) — `make_affinity_master_figure.py` embeds those numbers as literal
+arrays (`AB`, `BP`, `PCC_*`, `RMSE_*`) rather than recomputing them.
+
+## Full end-to-end retraining
+
+Retraining the ddG pipeline from raw sequences (rather than just inspecting
+the code) additionally requires:
 - The pretrained AbAffinity checkpoint and ESM-2 embedding/token caches from
   the companion absolute-affinity repository (`run_ddg_variants.py` loads a
   specific fold checkpoint and cached sequence embeddings by path).
@@ -86,36 +74,22 @@ figures/tables from the saved `results/` CSVs) additionally requires:
 - The S1131 / AB645 / SKEMPI mutation input CSVs and structures, which are
   not redistributed here (see the original SKEMPI 2.0 / AB-Bind licenses).
 
-This is a deliberate scope decision: shipping the multi-GB checkpoint and
-embedding caches was not practical for this package, and it isn't needed to
-verify the paper's reported numbers — regenerating the figures from
-`results/` (below) reproduces every number in Tables S5–S8 exactly.
-
-## Reproducing the figures (no external data needed)
-
+Example training call for the main model (pKd-difference anchor, gated
+correction head, 3 seeds):
 ```bash
-pip install numpy pandas matplotlib scipy scikit-learn
-cd figures/
-python make_ddg_master_figure.py       # -> figure_ddg_results.png / .pdf
-python make_affinity_master_figure.py  # -> figure_affinity_results.png / .pdf
+cd ddg/
+python moe_ddg.py --mode dgsub --anchor_pkd --seeds 0 1 2 \
+    --pairs_csv <path-to-s1131-pairs.csv> --fold_col fold_id \
+    --cutoffs random 90 70 antigencold
 ```
-
-`make_ddg_master_figure.py` computes panels a/b/d/e/f live from the CSVs in
-`../results/`, and panel c (external published-method comparison, Table S6)
-from literal values taken directly from Table S6 / the cited papers. Expected
-output (mean ± s.d. over 3 seeds), matching Tables S5 and S7:
-
-| | Random | Complex-disjoint | Antigen-disjoint |
-|---|---|---|---|
-| AbAffinity-ΔΔG (pKd anchor, main) | 0.801 ± 0.004 | 0.713 ± 0.017 | 0.675 ± 0.019 |
-| Affinity anchor only | 0.722 | 0.687 | 0.650 |
-| Cosine-difference anchor | 0.803 ± 0.008 | 0.700 ± 0.010 | 0.670 ± 0.039 |
-| ΔG-difference anchor | 0.792 ± 0.006 | 0.726 ± 0.008 | 0.682 ± 0.018 |
+See `moe_ddg.py --help` for the full set of flags (`--no_moe` for the
+anchor-only ablation, `--anchor_dg` for the ΔG-difference anchor variant,
+etc.).
 
 ## Citation
 
-If you use this code, please cite the paper (see `paper/` for the full text)
-and the companion absolute-affinity model:
+If you use this code, please cite the paper and the companion
+absolute-affinity model:
 
 > Singh, H., Malhotra, A., Srivastava, S.P., Singh, R.K., Gorantla, R.
 > Antibody–antigen affinity prediction with chain-aware protein language
