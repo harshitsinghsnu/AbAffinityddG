@@ -20,15 +20,13 @@ Sequence-based antibody affinity prediction requires chain-aware, antigen-depend
    pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
    pip install -r requirements.txt   # picks up everything else
    ```
-   Table S5's XGBoost baseline (`ddg/baselines_ddg.py`) is optional — see
-   the note in `requirements.txt`; the rest of the pipeline runs without it.
 
 2. **Clone this repo** — the checkpoint (`checkpoints/model.pt`) and input
    pairs (`data/ddg_input_*.csv`) are already included, so no external
    downloads are required for this step.
 
 3. **Train the main model** (pKd-difference anchor + gated correction head,
-   3 seeds, matching Table S5 / Figure 3's "AbAffinity-ΔΔG (ours)" row):
+   3 seeds):
    ```bash
    cd ddg/
    python moe_ddg.py --mode dgsub --anchor_pkd --seeds 0 1 2 \
@@ -37,18 +35,15 @@ Sequence-based antibody affinity prediction requires chain-aware, antigen-depend
    ```
    On first run this will download ESM-2 650M (~2.5 GB, one-time,
    `facebook/esm2_t33_650M_UR50D`) and build a local token-embedding cache
-   next to the input data (`data/esm2_token_cache_650M.pkl`) — this cache
-   is not shipped in the repo (it would be several GB) but is regenerated
-   automatically and reused on subsequent runs.
+   next to the input data (`data/esm2_token_cache_650M.pkl`) .
 
-4. **Reproduce the anchor-only ablation** (Table S5 "Affinity anchor only",
-   Figure 3e) by adding `--no_moe`:
+4. **Reproduce the anchor-only ablation** ("Affinity anchor only") by adding `--no_moe`:
    ```bash
    python moe_ddg.py --mode dgsub --anchor_pkd --no_moe --seeds 0 1 2 \
        --pairs_csv ../data/ddg_input_random.csv --fold_col fold_id --cutoffs random
    ```
 
-5. **Reproduce the other anchor formulations** (Table S7):
+5. **Reproduce the other anchor formulations**:
    ```bash
    # raw-cosine-difference anchor
    python moe_ddg.py --mode dgsub --seeds 0 1 2 \
