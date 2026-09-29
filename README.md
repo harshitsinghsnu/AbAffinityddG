@@ -7,19 +7,28 @@ Sequence-based antibody affinity prediction requires chain-aware, antigen-depend
 
 ## Step-by-step: reproduce the main ddG result from scratch
 
-1. **Install dependencies**
+1. **Install dependencies** (Python 3.11; exact versions verified in
+   `requirements.txt`)
    ```bash
-   pip install torch transformers numpy pandas scipy scikit-learn matplotlib biopython
+   pip install -r requirements.txt
    ```
-   A CUDA GPU is strongly recommended (ESM-2 650M forward passes over S1131
-   otherwise take a long time on CPU).
+   `pip install torch==2.6.0` alone resolves to a CPU-only wheel. For GPU
+   training (strongly recommended — ESM-2 650M forward passes over S1131
+   take a long time on CPU), install the matching CUDA build first, e.g.
+   for CUDA 12.4 (what this pipeline was run and verified with):
+   ```bash
+   pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+   pip install -r requirements.txt   # picks up everything else
+   ```
+   Table S5's XGBoost baseline (`ddg/baselines_ddg.py`) is optional — see
+   the note in `requirements.txt`; the rest of the pipeline runs without it.
 
 2. **Clone this repo** — the checkpoint (`checkpoints/model.pt`) and input
    pairs (`data/ddg_input_*.csv`) are already included, so no external
    downloads are required for this step.
 
 3. **Train the main model** (pKd-difference anchor + gated correction head,
-   3 seeds:
+   3 seeds, matching Table S5 / Figure 3's "AbAffinity-ΔΔG (ours)" row):
    ```bash
    cd ddg/
    python moe_ddg.py --mode dgsub --anchor_pkd --seeds 0 1 2 \
@@ -28,16 +37,18 @@ Sequence-based antibody affinity prediction requires chain-aware, antigen-depend
    ```
    On first run this will download ESM-2 650M (~2.5 GB, one-time,
    `facebook/esm2_t33_650M_UR50D`) and build a local token-embedding cache
-   next to the input data (`data/esm2_token_cache_650M.pkl`).
+   next to the input data (`data/esm2_token_cache_650M.pkl`) — this cache
+   is not shipped in the repo (it would be several GB) but is regenerated
+   automatically and reused on subsequent runs.
 
-4. **Reproduce the anchor-only ablation** ( "Affinity anchor only",
-   ) by adding `--no_moe`:
+4. **Reproduce the anchor-only ablation** (Table S5 "Affinity anchor only",
+   Figure 3e) by adding `--no_moe`:
    ```bash
    python moe_ddg.py --mode dgsub --anchor_pkd --no_moe --seeds 0 1 2 \
        --pairs_csv ../data/ddg_input_random.csv --fold_col fold_id --cutoffs random
    ```
 
-5. **Reproduce the other anchor formulations** :
+5. **Reproduce the other anchor formulations** (Table S7):
    ```bash
    # raw-cosine-difference anchor
    python moe_ddg.py --mode dgsub --seeds 0 1 2 \
@@ -72,7 +83,6 @@ Sequence-based antibody affinity prediction requires chain-aware, antigen-depend
    python make_ddg_master_figure.py       # -> figure_ddg_results.png / .pdf
    python make_affinity_master_figure.py  # -> figure_affinity_results.png / .pdf
    ```
-
 ## Citation
 
 Please cite the paper and the companion
